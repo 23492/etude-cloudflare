@@ -13,7 +13,7 @@ const call = async (method, path, { token, body, headers = {}, raw } = {}) => {
 assert.equal((await call("GET", "/v1/server")).data.sync.withoutPassword, true);
 assert.equal((await call("GET", "/v1/me")).status, 401);
 assert.equal((await call("POST", "/admin/invites", { body: { email: "a@x.test" } })).status, 401);
-const inv = (await call("POST", "/admin/invites", { token: "local-admin", body: { email: "Smoke@X.test" } })).data;
+const inv = (await call("POST", "/admin/invites", { token: process.env.ADMIN || "local-admin", body: { email: "Smoke@X.test" } })).data;
 assert.match(inv.token, /^inv_/);
 assert.equal((await call("POST", "/v1/auth/email/verify", { body: { email: "smoke@x.test", code: "123456" } })).status, 400);
 assert.equal((await call("POST", "/v1/auth/email/verify", { body: { token: "inv_nope" } })).status, 401);
@@ -51,7 +51,7 @@ assert.equal(s1.status, 200);
 assert.equal((await call("DELETE", `/v1/blobs/${name}`, { token: t })).status, 409);
 assert.equal((await call("GET", "/v1/vault/snapshot", { token: t })).data.size, big.length);
 // another account sees nothing
-const inv2 = (await call("POST", "/admin/invites", { token: "local-admin", body: { email: "other@x.test" } })).data;
+const inv2 = (await call("POST", "/admin/invites", { token: process.env.ADMIN || "local-admin", body: { email: "other@x.test" } })).data;
 const t2 = (await call("POST", "/v1/auth/email/verify", { body: { token: inv2.token } })).data.token;
 assert.equal((await call("GET", "/v1/sync/events?after=0", { token: t2 })).data.events.length, 0);
 assert.equal((await call("GET", `/v1/blobs/${name}`, { token: t2 })).status, 404);
@@ -59,3 +59,12 @@ assert.equal((await call("GET", `/v1/blobs/${name}`, { token: t2 })).status, 404
 await call("POST", "/v1/auth/logout", { token: t2, body: {} });
 assert.equal((await call("GET", "/v1/me", { token: t2 })).status, 401);
 console.log("smoke: all checks passed");
+// shapes the app's Settings screens read
+{
+  const inv3 = (await call("POST", "/admin/invites", { token: process.env.ADMIN || "local-admin", body: { email: "shape@x.test" } })).data;
+  const t3 = (await call("POST", "/v1/auth/email/verify", { body: { token: inv3.token } })).data.token;
+  const d = (await call("GET", "/v1/devices", { token: t3 })).data;
+  assert.ok(Array.isArray(d.devices) && d.devices.length === 1 && d.devices[0].current === true, "devices is {devices:[...]}");
+  assert.deepEqual((await call("GET", "/v1/me/passkeys", { token: t3 })).data, { passkeys: [] });
+  console.log("smoke: shapes ok");
+}

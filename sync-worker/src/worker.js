@@ -201,8 +201,13 @@ async function handle(req, env) {
   if (p === "/v1/billing/sync") return json(200, { active: true, reason: "self_hosted", source: "manual", status: "active", expires: null, graceUntil: null, billing: false });
   if (p === "/v1/devices" && m === "GET") {
     const { results } = await env.DB.prepare("SELECT id,name,created_at,last_seen FROM devices WHERE account_id=? ORDER BY created_at").bind(acct).all();
-    return json(200, results.map((d) => ({ id: d.id, name: d.name || "", via: "invite", created: d.created_at, lastSeen: d.last_seen || d.created_at, current: d.id === u.device_id })));
+    return json(200, { devices: results.map((d) => ({ id: d.id, name: d.name || "", via: "invite", created: d.created_at, lastSeen: d.last_seen || d.created_at, current: d.id === u.device_id })) });
   }
+  // Features this server does not offer: empty answers in the shapes the app reads.
+  if (p === "/v1/me/passkeys" && m === "GET") return json(200, { passkeys: [] });
+  if (p === "/v1/library" && m === "GET") return json(200, { items: [], library: [] });
+  if (p === "/v1/listings" && m === "GET") return json(200, { listings: [] });
+  if (p === "/v1/market/paid-index.json") return json(200, { entries: [] });
   const dev = p.match(/^\/v1\/devices\/([^/]+)$/);
   if (dev && m === "DELETE") {
     await env.DB.prepare("DELETE FROM devices WHERE id=? AND account_id=?").bind(decodeURIComponent(dev[1]), acct).run();
