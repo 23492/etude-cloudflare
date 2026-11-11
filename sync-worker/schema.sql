@@ -64,3 +64,17 @@ CREATE TABLE IF NOT EXISTS blob_chunks (
   data BLOB NOT NULL,
   PRIMARY KEY (account_id, name, n)
 );
+
+-- One-time sign-in links: from Cloudflare Access (60 s) or admin magic links (hours). Only the SHA-256 is stored.
+CREATE TABLE IF NOT EXISTS link_tokens (
+  token_hash TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS link_tokens_expires ON link_tokens(expires_at);
+
+-- Accounts that may not sign in, whatever the route.
+CREATE TABLE IF NOT EXISTS blocked (
+  email TEXT PRIMARY KEY
+);

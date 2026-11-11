@@ -77,6 +77,47 @@ function blobStore(env) {
   };
 }
 
+// ---------------------------------------------------------------- Cloudflare Access
+// When ACCESS_TEAM_DOMAIN and ACCESS_AUD are set, the worker trusts the email in the
+// Cf-Access-Jwt-Assertion header after checking its RS256 signature against the team's certs,
+// its audience, issuer and expiry. Never trusts an email from anywhere else.
+const b64urlBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+const b64urlJson = (s) => JSON.parse(new TextDecoder().decode(b64urlBytes(s)));
+let certCache = { at: 0, keys: [] };
+async function accessKeys(env, force = false) {
+  if (!force && Date.now() - certCache.at < 3600_000 && certCache.keys.length) return certCache.keys;
+  const r = await fetch(`${env.ACCESS_TEAM_DOMAIN.replace(/\/$/, "")}/cdn-cgi/access/certs`);
+  const { keys = [] } = await r.json();
+  certCache = { at: Date.now(), keys };
+  return keys;
+}
+async function verifyAccessJwt(env, jwt) {
+  const parts = String(jwt || "").split(".");
+  if (parts.length !== 3) return null;
+  const header = b64urlJson(parts[0]);
+  const payload = b64urlJson(parts[1]);
+  if (header.alg !== "RS256") return null;
+  let jwk = (await accessKeys(env)).find((k) => k.kid === header.kid);
+  if (!jwk) jwk = (await accessKeys(env, true)).find((k) => k.kid === header.kid);
+  if (!jwk) return null;
+  const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+  const ok = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, b64urlBytes(parts[2]), enc.encode(`${parts[0]}.${parts[1]}`));
+  if (!ok) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const auds = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  if (!auds.includes(env.ACCESS_AUD)) return null;
+  if (payload.iss !== env.ACCESS_TEAM_DOMAIN.replace(/\/$/, "")) return null;
+  if (typeof payload.exp !== "number" || payload.exp < now - 60) return null;
+  if (typeof payload.nbf === "number" && payload.nbf > now + 60) return null;
+  if (!payload.email) return null; // service tokens carry no email
+  return String(payload.email).trim().toLowerCase();
+}
+const accessOn = (env) => !!(env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD);
+async function accessEmail(env, req) {
+  if (!accessOn(env)) return null;
+  return verifyAccessJwt(env, req.headers.get("cf-access-jwt-assertion")).catch(() => null);
+}
+
 // ---------------------------------------------------------------- auth
 async function deviceFor(env, req) {
   const auth = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
@@ -156,6 +197,26 @@ async function handle(req, env) {
       ]);
       return json(200, { ok: true });
     }
+    if (p === "/admin/link" && m === "POST") {
+      // A magic link for someone without Access (or for an iframe where the Access cookie can't reach).
+      const { email, ttlHours } = await req.json();
+      if (!email || !/^[^@\s]+@[^@\s]+$/.test(email)) return err(400, "invalid_email");
+      const e = email.trim().toLowerCase();
+      const ttl = Math.min(Math.max(Number(ttlHours) || 24, 1), 24 * 14) * 3600;
+      const token = randomToken("lnk_");
+      await env.DB.prepare("INSERT INTO link_tokens (token_hash,email,expires_at) VALUES (?,?,strftime('%s','now')+?)").bind(await sha256(token), e, ttl).run();
+      return json(201, { email: e, url: `${url.origin}/app/#link=${token}`, expiresInHours: ttl / 3600 });
+    }
+    if (p === "/admin/block" && m === "POST") {
+      const { email, blocked = true } = await req.json();
+      const e = String(email || "").trim().toLowerCase();
+      if (blocked) await env.DB.batch([
+        env.DB.prepare("INSERT OR IGNORE INTO blocked (email) VALUES (?)").bind(e),
+        env.DB.prepare("DELETE FROM devices WHERE account_id IN (SELECT id FROM accounts WHERE email=?)").bind(e),
+      ]);
+      else await env.DB.prepare("DELETE FROM blocked WHERE email=?").bind(e).run();
+      return json(200, { ok: true, email: e, blocked: !!blocked });
+    }
     if (p === "/admin/stats" && m === "GET") {
       const r = await env.DB.prepare(
         "SELECT a.email, (SELECT COUNT(*) FROM events e WHERE e.account_id=a.id) AS events, (SELECT COALESCE(SUM(size),0) FROM blobs b WHERE b.account_id=a.id) AS blob_bytes, (SELECT COUNT(*) FROM devices d WHERE d.account_id=a.id) AS devices FROM accounts a",
@@ -167,15 +228,35 @@ async function handle(req, env) {
 
   // ---- public
   if (p === "/v1/server") {
-    return json(200, { billing: false, market: false, quotaBytes: QUOTA_BYTES, passkeys: { rpId: "" }, sync: { withoutPassword: true } });
+    return json(200, { billing: false, market: false, quotaBytes: QUOTA_BYTES, passkeys: { rpId: "" }, sync: { withoutPassword: true }, access: accessOn(env) });
   }
   if (p.startsWith("/v1/telemetry/")) return json(200, { ok: true }); // accepted and dropped
   if (p === "/v1/auth/email/start" && m === "POST") return json(200, { ok: true }); // no mail: the invite token is the "code"
+  if (p === "/v1/auth/access" && m === "GET") {
+    const email = await accessEmail(env, req);
+    if (!email) return err(401, "no_access_identity", "Open Etude through Cloudflare Access to sign in automatically.");
+    if (await env.DB.prepare("SELECT 1 FROM blocked WHERE email=?").bind(email).first()) return err(403, "revoked", "This account is blocked.");
+    const token = randomToken("lnk_");
+    await env.DB.prepare("INSERT INTO link_tokens (token_hash,email,expires_at) VALUES (?,?,strftime('%s','now')+60)").bind(await sha256(token), email).run();
+    await env.DB.prepare("DELETE FROM link_tokens WHERE expires_at < strftime('%s','now')-86400").run();
+    return json(200, { email, token }, { "cache-control": "no-store" });
+  }
   if (p === "/v1/auth/email/verify" && m === "POST") {
     const body = await req.json().catch(() => ({}));
     if (!body.token) return err(400, "use_invite_token", "Paste your personal invite token instead of a 6-digit code.");
-    const inv = await env.DB.prepare("SELECT email FROM invites WHERE token_hash=? AND revoked=0").bind(await sha256(String(body.token).trim())).first();
-    if (!inv) return err(401, "invalid_token", "This invite token is not valid.");
+    const raw = String(body.token).trim();
+    let inv;
+    if (raw.startsWith("lnk_")) {
+      // One-time link token: from /v1/auth/access (Access-verified email) or an admin magic link. Used once, short-lived.
+      const h = await sha256(raw);
+      inv = await env.DB.prepare("SELECT email FROM link_tokens WHERE token_hash=? AND used=0 AND expires_at > strftime('%s','now')").bind(h).first();
+      if (inv) await env.DB.prepare("UPDATE link_tokens SET used=1 WHERE token_hash=?").bind(h).run();
+    } else {
+      inv = await env.DB.prepare("SELECT email FROM invites WHERE token_hash=? AND revoked=0").bind(await sha256(raw)).first();
+    }
+    if (!inv) return err(401, "invalid_token", "This sign-in link is not valid or was already used.");
+    const revoked = await env.DB.prepare("SELECT 1 FROM blocked WHERE email=?").bind(inv.email).first();
+    if (revoked) return err(403, "revoked", "This account is blocked.");
     const a = await accountForEmail(env, inv.email);
     const token = randomToken("etd_");
     await env.DB.prepare("INSERT INTO devices (id,token_hash,account_id,name) VALUES (?,?,?,?)")
@@ -186,6 +267,11 @@ async function handle(req, env) {
   // ---- signed in
   const u = await deviceFor(env, req);
   if (!u) return err(401, "unauthorized", "Sign in again.");
+  if (accessOn(env)) {
+    // Behind Access, a device token only works for the person Access says is making the request.
+    const who = await accessEmail(env, req);
+    if (!who || who !== u.email) return err(403, "identity_mismatch", "Signed in to Access as someone else. Sign out of Sync on this device.");
+  }
   const acct = u.id;
 
   if (p === "/v1/auth/logout" && m === "POST") {

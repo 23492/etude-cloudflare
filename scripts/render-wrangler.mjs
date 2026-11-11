@@ -2,6 +2,8 @@
 //   D1_DATABASE_ID   (required) id of the D1 database
 //   D1_DATABASE_NAME (optional) its name, default "etude-sync"
 //   CUSTOM_DOMAIN    (optional) e.g. etude.example.com; the zone must be on the same Cloudflare account
+//   ACCESS_TEAM_DOMAIN, ACCESS_AUD (optional) Cloudflare Access team URL and application audience tag
+//   WORKERS_DEV      (optional) "true" keeps the workers.dev URL on; off by default when a custom domain is set
 //   ALLOWED_ORIGINS  (optional) comma-separated extra origins for CORS (the app itself is same-origin)
 //   R2_BLOBS / R2_BACKUPS (optional) bucket names; when set, blobs go to R2 and a weekly D1 export lands in R2
 const env = process.env;
@@ -10,10 +12,15 @@ const cfg = {
   name: "etude-sync",
   main: "src/worker.js",
   compatibility_date: "2026-11-01",
-  workers_dev: !env.CUSTOM_DOMAIN,
+  workers_dev: env.WORKERS_DEV === "true" || !env.CUSTOM_DOMAIN,
   assets: { directory: "./public", binding: "ASSETS", run_worker_first: true },
   d1_databases: [{ binding: "DB", database_name: env.D1_DATABASE_NAME || "etude-sync", database_id: env.D1_DATABASE_ID }],
-  vars: { ALLOWED_ORIGINS: env.ALLOWED_ORIGINS || "" },
+  vars: {
+    ALLOWED_ORIGINS: env.ALLOWED_ORIGINS || "",
+    // Cloudflare Access: when both are set, sign-in is automatic and every /v1 call must match the Access identity.
+    ACCESS_TEAM_DOMAIN: env.ACCESS_TEAM_DOMAIN || "",
+    ACCESS_AUD: env.ACCESS_AUD || "",
+  },
   triggers: { crons: ["17 3 * * 1"] },
 };
 if (env.CUSTOM_DOMAIN) cfg.routes = [{ pattern: env.CUSTOM_DOMAIN, custom_domain: true }];

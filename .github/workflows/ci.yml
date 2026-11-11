@@ -78,6 +78,16 @@ jobs:
       - name: Protocol smoke test
         working-directory: sync-worker
         run: node test/smoke.mjs http://127.0.0.1:8787
+      - name: Access JWT test (second worker with a test signer)
+        working-directory: sync-worker
+        run: |
+          nohup node test/fake-access.mjs > /tmp/fake-access.log 2>&1 &
+          sleep 1
+          nohup npx wrangler dev --config wrangler.local.jsonc --port 8790 --ip 127.0.0.1 --persist-to /tmp/wr-access \
+            --var ACCESS_TEAM_DOMAIN:http://127.0.0.1:8799 --var ACCESS_AUD:test-aud > /tmp/wrangler-access.log 2>&1 &
+          npx wrangler d1 execute etude-sync-local --local --config wrangler.local.jsonc --persist-to /tmp/wr-access --file schema.sql
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8790/health && break; sleep 2; done
+          node test/access.mjs http://127.0.0.1:8790 http://127.0.0.1:8799
       - name: Etude deps
         working-directory: etude
         run: npm ci --no-audit --no-fund
@@ -94,7 +104,7 @@ jobs:
           node --test --test-name-pattern="real etude-cloud" test/sync.test.ts
       - name: Logs on failure
         if: failure()
-        run: tail -n 200 /tmp/wrangler.log /tmp/proxy.log || true
+        run: tail -n 200 /tmp/wrangler.log /tmp/proxy.log /tmp/wrangler-access.log /tmp/fake-access.log || true
 
   build-app:
     needs: resolve
@@ -154,6 +164,8 @@ jobs:
       D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
       CUSTOM_DOMAIN: ${{ vars.CUSTOM_DOMAIN }}
       D1_DATABASE_NAME: ${{ vars.D1_DATABASE_NAME }}
+      ACCESS_TEAM_DOMAIN: ${{ vars.ACCESS_TEAM_DOMAIN }}
+      ACCESS_AUD: ${{ vars.ACCESS_AUD }}
     steps:
       - uses: actions/checkout@v4
       - name: Skip when not configured
