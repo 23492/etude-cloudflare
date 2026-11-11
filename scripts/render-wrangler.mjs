@@ -1,5 +1,6 @@
 // Prints the deploy config for wrangler from environment variables, so no account-specific ids live in the repo.
-//   D1_DATABASE_ID   (required) id of the D1 database "etude-sync"
+//   D1_DATABASE_ID   (required) id of the D1 database
+//   D1_DATABASE_NAME (optional) its name, default "etude-sync"
 //   CUSTOM_DOMAIN    (optional) e.g. etude.example.com; the zone must be on the same Cloudflare account
 //   ALLOWED_ORIGINS  (optional) comma-separated extra origins for CORS (the app itself is same-origin)
 //   R2_BLOBS / R2_BACKUPS (optional) bucket names; when set, blobs go to R2 and a weekly D1 export lands in R2
@@ -11,7 +12,7 @@ const cfg = {
   compatibility_date: "2026-11-01",
   workers_dev: !env.CUSTOM_DOMAIN,
   assets: { directory: "./public", binding: "ASSETS", run_worker_first: true },
-  d1_databases: [{ binding: "DB", database_name: "etude-sync", database_id: env.D1_DATABASE_ID }],
+  d1_databases: [{ binding: "DB", database_name: env.D1_DATABASE_NAME || "etude-sync", database_id: env.D1_DATABASE_ID }],
   vars: { ALLOWED_ORIGINS: env.ALLOWED_ORIGINS || "" },
   triggers: { crons: ["17 3 * * 1"] },
 };

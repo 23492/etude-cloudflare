@@ -153,6 +153,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
       CUSTOM_DOMAIN: ${{ vars.CUSTOM_DOMAIN }}
+      D1_DATABASE_NAME: ${{ vars.D1_DATABASE_NAME }}
     steps:
       - uses: actions/checkout@v4
       - name: Skip when not configured
@@ -173,7 +174,7 @@ jobs:
         run: |
           npm install --no-audit --no-fund -D wrangler@4
           node ../scripts/render-wrangler.mjs > wrangler.deploy.jsonc
-          npx wrangler d1 execute etude-sync --remote --config wrangler.deploy.jsonc --file schema.sql
+          npx wrangler d1 execute DB --remote --config wrangler.deploy.jsonc --file schema.sql
           npx wrangler deploy --config wrangler.deploy.jsonc
 
   report-failure:
