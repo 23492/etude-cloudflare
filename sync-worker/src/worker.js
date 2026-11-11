@@ -205,6 +205,7 @@ async function handle(req, env) {
   }
   // Features this server does not offer: empty answers in the shapes the app reads.
   if (p === "/v1/me/passkeys" && m === "GET") return json(200, { passkeys: [] });
+  if (p === "/v1/me/email/pending" && m === "GET") return json(200, { pending: null });
   if (p === "/v1/library" && m === "GET") return json(200, { items: [], library: [] });
   if (p === "/v1/listings" && m === "GET") return json(200, { listings: [] });
   if (p === "/v1/market/paid-index.json") return json(200, { entries: [] });
