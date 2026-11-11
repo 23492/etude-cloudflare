@@ -1,0 +1,7 @@
+etude/
+node_modules/
+sync-worker/public/
+sync-worker/.wrangler/
+.dev.vars
+.env*
+*.local.md

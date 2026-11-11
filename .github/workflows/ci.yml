@@ -1,0 +1,79 @@
+name: build-and-test
+
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  ETUDE_REF: 7caac1c   # pinned Etude commit; bump to update
+  SYNC_URL: ${{ vars.SYNC_URL || 'https://etude.example.com' }}   # set the SYNC_URL repository variable to your domain
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+
+      - name: Fetch Etude at the pinned commit
+        run: |
+          git clone https://github.com/Zibhelina/etude.git etude
+          git -C etude checkout "$ETUDE_REF"
+
+      - name: Worker deps
+        working-directory: sync-worker
+        run: npm install --no-audit --no-fund -D wrangler@4
+
+      - name: Start worker locally (wrangler dev, local D1)
+        working-directory: sync-worker
+        run: |
+          npx wrangler d1 execute etude-sync-local --local --config wrangler.local.jsonc --file schema.sql
+          nohup npx wrangler dev --config wrangler.local.jsonc --port 8787 --ip 127.0.0.1 > /tmp/wrangler.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8787/health && break; sleep 2; done
+          curl -sf http://127.0.0.1:8787/health
+
+      - name: Protocol smoke test
+        working-directory: sync-worker
+        run: node test/smoke.mjs http://127.0.0.1:8787
+
+      - name: Etude deps
+        working-directory: etude
+        run: npm ci --no-audit --no-fund
+
+      - name: Etude's own cloud sync property test against the worker (3 devices, 240 rounds)
+        working-directory: etude
+        run: |
+          nohup node ../sync-worker/test/outbox-proxy.mjs > /tmp/proxy.log 2>&1 &
+          sleep 1
+          ETUDE_SYNC_TEST_SERVER=http://127.0.0.1:8788 ETUDE_SYNC_TEST_OUTBOX=/tmp/etude-outbox \
+            node --test --test-name-pattern="real etude-cloud" test/sync.test.ts
+
+      - name: Logs on failure
+        if: failure()
+        run: tail -n 200 /tmp/wrangler.log /tmp/proxy.log || true
+
+  build-app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - name: Fetch, patch and build the Etude browser edition under /app
+        run: |
+          git clone https://github.com/Zibhelina/etude.git etude
+          git -C etude checkout "$ETUDE_REF"
+          bash scripts/patch-etude.sh etude "$SYNC_URL"
+          cd etude
+          npm ci --no-audit --no-fund
+          VITE_APP_BASE=/app ETUDE_BROWSER_OUT="$GITHUB_WORKSPACE/sync-worker/public/app" npm run build:browser
+          rm -f "$GITHUB_WORKSPACE/sync-worker/public/app/harness.html"
+          echo "files: $(find "$GITHUB_WORKSPACE/sync-worker/public" -type f | wc -l)"
+          du -sh "$GITHUB_WORKSPACE/sync-worker/public"
+          find "$GITHUB_WORKSPACE/sync-worker/public" -type f -size +25M
+      - uses: actions/upload-artifact@v4
+        with:
+          name: etude-app
+          path: sync-worker/public

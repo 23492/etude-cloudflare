@@ -1,0 +1,7 @@
+{
+  "name": "etude-sync",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "d1_databases": [{ "binding": "DB", "database_name": "etude-sync-local", "database_id": "00000000-0000-0000-0000-000000000000" }],
+  "vars": { "ALLOWED_ORIGINS": "*", "ADMIN_TOKEN": "local-admin" }
+}
