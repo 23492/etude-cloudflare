@@ -20,6 +20,10 @@ const cfg = {
     // Cloudflare Access: when both are set, sign-in is automatic and every /v1 call must match the Access identity.
     ACCESS_TEAM_DOMAIN: env.ACCESS_TEAM_DOMAIN || "",
     ACCESS_AUD: env.ACCESS_AUD || "",
+    // AI proxy settings (the key itself is a Worker secret, AI_API_KEY, set outside the repo and CI).
+    AI_MODEL: env.AI_MODEL || "deepseek-flash",
+    AI_EFFORT: env.AI_EFFORT || "high",
+    AI_DAILY_LIMIT: env.AI_DAILY_LIMIT || "300",
   },
   triggers: { crons: ["17 3 * * 1"] },
 };

@@ -32,6 +32,13 @@ createServer(async (req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify({ jwt: sign(JSON.parse(b || "{}")) }));
   }
+  if (req.url === "/fake-ai" && req.method === "POST") {
+    let b = "";
+    for await (const c of req) b += c;
+    const j = JSON.parse(b);
+    res.writeHead(200, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }], seen: { model: j.model, reasoning_effort: j.reasoning_effort, auth: req.headers.authorization } }));
+  }
   res.writeHead(404);
   res.end();
 }).listen(PORT, "127.0.0.1", () => console.log("fake access on", ISS));

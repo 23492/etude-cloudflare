@@ -58,4 +58,17 @@ assert.equal(cv.data.account.email, "carol@x.test");
 await fetch(S + "/admin/block", { method: "POST", headers: { authorization: `Bearer ${ADMIN}`, "content-type": "application/json" }, body: JSON.stringify({ email: "bob@x.test" }) });
 assert.equal((await call("GET", "/v1/me", { jwt: bob.jwt, token: bob.token })).status, 401, "blocked: devices removed");
 assert.equal((await call("GET", "/v1/auth/access", { jwt: bob.jwt })).status, 403, "blocked: no new sign-in");
+
+// AI proxy: requires an Access identity, forces model + effort, never needs a client key
+{
+  const ai = (await call("GET", "/v1/server")).data.ai;
+  assert.deepEqual(ai, { model: "deepseek-flash", effort: "high" }, "server advertises AI");
+  assert.equal((await call("POST", "/v1/ai/chat/completions", { body: { messages: [{ role: "user", content: "hi" }] } })).status, 401, "AI without identity");
+  const alice2 = await jwtFor({ email: "alice@x.test" });
+  const r = await call("POST", "/v1/ai/chat/completions", { jwt: alice2, body: { model: "gpt-expensive", messages: [{ role: "user", content: "hi" }] } });
+  assert.equal(r.status, 200, "AI proxy answers");
+  assert.equal(r.data.seen.model, "deepseek-flash", "model forced");
+  assert.equal(r.data.seen.reasoning_effort, "high", "effort forced");
+  assert.equal(r.data.seen.auth, "Bearer test-ai-key", "key added server-side");
+}
 console.log("access: all checks passed");

@@ -228,9 +228,43 @@ async function handle(req, env) {
 
   // ---- public
   if (p === "/v1/server") {
-    return json(200, { billing: false, market: false, quotaBytes: QUOTA_BYTES, passkeys: { rpId: "" }, sync: { withoutPassword: true }, access: accessOn(env) });
+    return json(200, { billing: false, market: false, quotaBytes: QUOTA_BYTES, passkeys: { rpId: "" }, sync: { withoutPassword: true }, access: accessOn(env), ai: env.AI_API_KEY ? { model: env.AI_MODEL || "deepseek-flash", effort: env.AI_EFFORT || "high" } : null });
   }
   if (p.startsWith("/v1/telemetry/")) return json(200, { ok: true }); // accepted and dropped
+  // ---- AI proxy: the provider key lives only in this worker (secret AI_API_KEY), never in the app or the repo.
+  // Model and reasoning effort are fixed here, whatever the client asks for. Per-person daily cap.
+  if (p === "/v1/ai/chat/completions" && m === "POST") {
+    if (!env.AI_API_KEY) return err(503, "ai_off", "AI grading is not configured on this server.");
+    let who = await accessEmail(env, req);
+    if (!who && !accessOn(env)) {
+      const d = await deviceFor(env, req);
+      who = d?.email || null;
+    }
+    if (!who) return err(401, "unauthorized", "Open Etude through the server's sign-in to use AI grading.");
+    if (await env.DB.prepare("SELECT 1 FROM blocked WHERE email=?").bind(who).first()) return err(403, "revoked", "This account is blocked.");
+    const day = new Date().toISOString().slice(0, 10);
+    const cap = Number(env.AI_DAILY_LIMIT || 300);
+    await env.DB.prepare("INSERT INTO ai_usage (email,day,calls) VALUES (?,?,1) ON CONFLICT(email,day) DO UPDATE SET calls=calls+1").bind(who, day).run();
+    const used = await env.DB.prepare("SELECT calls FROM ai_usage WHERE email=? AND day=?").bind(who, day).first();
+    if (used.calls > cap) return err(429, "ai_daily_limit", `AI grading limit of ${cap} answers per day reached.`);
+    const body = await req.json().catch(() => null);
+    if (!body || !Array.isArray(body.messages)) return err(400, "invalid_request");
+    const upstream = {
+      ...body,
+      model: env.AI_MODEL || "deepseek-flash",
+      reasoning_effort: env.AI_EFFORT || "high",
+      thinking: { type: "enabled" },
+      stream: false,
+    };
+    const r = await fetch(env.AI_URL || "https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${env.AI_API_KEY}` },
+      body: JSON.stringify(upstream),
+    });
+    const text = await r.text();
+    // Pass the provider's answer through; never echo request headers or the key.
+    return new Response(text, { status: r.status, headers: { "content-type": r.headers.get("content-type") || "application/json", "cache-control": "no-store" } });
+  }
   if (p === "/v1/auth/email/start" && m === "POST") return json(200, { ok: true }); // no mail: the invite token is the "code"
   if (p === "/v1/auth/access" && m === "GET") {
     const email = await accessEmail(env, req);

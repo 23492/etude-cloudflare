@@ -68,10 +68,26 @@
     } catch (e) {}
   }
 
+  // AI grading through this server's proxy (/v1/ai). The provider key stays in the worker; the app only
+  // gets a placeholder key, since the proxy identifies the person by their Cloudflare Access sign-in.
+  function setupAi(transport) {
+    return fetch("/v1/server", { credentials: "include", cache: "no-store" }).then(function (r) { return r.ok ? r.json() : null; }).then(function (s) {
+      if (!s || !s.ai) return null;
+      var provider = { kind: "openai-chat", url: location.origin + "/v1/ai/chat/completions", model: s.ai.model || "server", apiKeyEnv: "SELFHOST_AI_KEY", vision: false, timeoutMs: 90000, temperature: 0.3 };
+      return api(transport, "POST", "/api/settings/key", { name: "SELFHOST_AI_KEY", value: "via-access" })
+        .then(function () { return api(transport, "PATCH", "/api/settings", { ai: { decision: { kind: "llm" }, feedback: provider, vision: null } }); })
+        .catch(function () {});
+    });
+  }
+
   waitForCore(30000).then(function (transport) {
     return api(transport, "GET", "/api/sync/status").then(function (st) {
       var done = st && st.kind === "cloud" && st.signedIn && st.unlocked;
-      if (done && !linkToken) return null; // already linked on this device
+      if (done && !linkToken) {
+        // Already linked: only make sure AI grading points at this server.
+        try { if (localStorage.getItem(KEY + ".ai") === "1") return null; } catch (e) {}
+        return setupAi(transport).then(function () { try { localStorage.setItem(KEY + ".ai", "1"); } catch (e) {} });
+      }
       return getToken().then(function (t) {
         if (!t || !t.token) return null; // not behind Access and no magic link: leave the normal flow alone
         // If this device is linked to someone else, don't mix collections: stop and say so.
@@ -88,6 +104,7 @@
           .then(function () { return api(transport, "POST", "/api/sync/verify", { code: t.token }); })
           .then(function () { return api(transport, "POST", "/api/sync/unlock", {}); })
           .then(function () { return api(transport, "PATCH", "/api/settings", { onboarding: { done: true } }).catch(function () {}); })
+          .then(function () { return setupAi(transport); })
           .then(function () { return api(transport, "POST", "/api/sync/now", {}); })
           .then(function () {
             try { localStorage.setItem(KEY, String(Date.now())); } catch (e) {}

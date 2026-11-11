@@ -78,3 +78,11 @@ CREATE INDEX IF NOT EXISTS link_tokens_expires ON link_tokens(expires_at);
 CREATE TABLE IF NOT EXISTS blocked (
   email TEXT PRIMARY KEY
 );
+
+-- AI proxy usage per person per day (for the daily cap).
+CREATE TABLE IF NOT EXISTS ai_usage (
+  email TEXT NOT NULL,
+  day TEXT NOT NULL,
+  calls INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (email, day)
+);
