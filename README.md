@@ -45,6 +45,23 @@ curl -X POST https://etude.your-domain.tld/admin/invites \
   -d '{"email":"friend@example.com"}'
 ```
 
+## Cloudflare Access (optional, recommended)
+
+Put a self-hosted Access application in front of your domain and set two repository variables:
+
+| Name | Value |
+|---|---|
+| `ACCESS_TEAM_DOMAIN` | `https://<your-team>.cloudflareaccess.com` |
+| `ACCESS_AUD` | the application's audience tag (Access → Applications → your app → Additional settings) |
+
+With both set, people sign in once through Access and the app links itself to Sync without a code: the bundled `autolink.js` asks `/v1/auth/access` for a one-time token, the worker issues it only after verifying the Access JWT (RS256 signature against your team's certs, audience, issuer and expiry), and creates the account for that email if needed. Behind Access every device token only works for the person Access says is making the request. Who may use the app is managed entirely in Access policies.
+
+Admin endpoints: `POST /admin/link` (one-time `#link=` magic link for an email), `POST /admin/block` (block an email and drop its devices), `GET /admin/stats`.
+
+## AI grading proxy (optional)
+
+Set the worker secret `AI_API_KEY` outside the repo (`wrangler secret put AI_API_KEY`, or the dashboard as type *Secret*). The app is then configured automatically to grade through `/v1/ai/chat/completions`; the worker adds the key, forces `AI_MODEL` (default `deepseek-flash`) and `AI_EFFORT` (default `high`), and caps each person at `AI_DAILY_LIMIT` answers per day (default 300). The key never reaches the browser or CI.
+
 ## Security notes
 
 - Device and invite tokens are stored only as SHA-256 hashes.
