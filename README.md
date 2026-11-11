@@ -14,15 +14,36 @@ This project is not affiliated with Etude. The protocol is reconstructed from Et
 |---|---|
 | `sync-worker/src/worker.js` | The worker: static app plus `/v1` Sync API plus `/admin` invite API |
 | `sync-worker/schema.sql` | D1 schema |
-| `sync-worker/wrangler.jsonc` | Deploy config (fill in your D1 id) |
+| `scripts/render-wrangler.mjs` | Writes the deploy config from secrets, so no account ids live in the repo |
+| `etude.ref` | The Etude release that is tested and deployed |
 | `sync-worker/test/smoke.mjs` | Protocol smoke test against a running worker |
 | `sync-worker/test/outbox-proxy.mjs` | Test-only proxy that lets Etude's own sync test sign in |
 | `scripts/patch-etude.sh` | Points an Etude checkout at your Sync URL instead of sync.etude.study |
 | `.github/workflows/ci.yml` | Builds the app, runs the smoke test and Etude's sync property test |
 
-## Status
+## Staying up to date with Etude
 
-Work in progress: the worker and CI exist; deployment docs follow once CI is green.
+A daily workflow checks Etude's latest release. When there is a new one, CI builds it and runs Etude's own cloud sync property test against this worker. If that passes, the bot commits the new tag to `etude.ref` and deploys it. If it fails, the deployed version stays as it is and an issue is opened, so a protocol change in Etude never breaks your Sync.
+
+## Deploy
+
+Repository settings → Secrets and variables → Actions:
+
+| Name | Kind | Value |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | secret | Token with Workers Scripts edit, D1 edit and (for a custom domain) Workers Routes / DNS edit |
+| `CLOUDFLARE_ACCOUNT_ID` | secret | Your account id |
+| `D1_DATABASE_ID` | secret | `wrangler d1 create etude-sync` |
+| `SYNC_URL` | variable | `https://etude.your-domain.tld` |
+| `CUSTOM_DOMAIN` | variable | `etude.your-domain.tld` (optional; without it the worker runs on workers.dev) |
+
+Without the secrets, CI still builds and tests but skips the deploy. Then set the admin secret once: `wrangler secret put ADMIN_TOKEN --name etude-sync`, and create an invite per person:
+
+```sh
+curl -X POST https://etude.your-domain.tld/admin/invites \
+  -H "authorization: Bearer $ADMIN_TOKEN" -H "content-type: application/json" \
+  -d '{"email":"friend@example.com"}'
+```
 
 ## Security notes
 
