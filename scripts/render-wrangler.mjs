@@ -5,6 +5,7 @@
 //   ACCESS_TEAM_DOMAIN, ACCESS_AUD (optional) Cloudflare Access team URL and application audience tag
 //   WORKERS_DEV      (optional) "true" keeps the workers.dev URL on; off by default when a custom domain is set
 //   ALLOWED_ORIGINS  (optional) comma-separated extra origins for CORS (the app itself is same-origin)
+//   AI_STYLE (optional) "off" drops the house style the AI proxy adds; AI_STYLE_EXTRA adds your own lines
 //   R2_BLOBS / R2_BACKUPS (optional) bucket names; when set, blobs go to R2 and a weekly D1 export lands in R2
 const env = process.env;
 if (!env.D1_DATABASE_ID) throw new Error("D1_DATABASE_ID is required");
@@ -24,6 +25,9 @@ const cfg = {
     AI_MODEL: env.AI_MODEL || "deepseek-flash",
     AI_EFFORT: env.AI_EFFORT || "high",
     AI_DAILY_LIMIT: env.AI_DAILY_LIMIT || "300",
+    // House style added to every AI answer (short, answer first, jargon kept literal, no dashes). "off" disables it.
+    AI_STYLE: env.AI_STYLE || "on",
+    AI_STYLE_EXTRA: env.AI_STYLE_EXTRA || "",
   },
   triggers: { crons: ["17 3 * * 1"] },
 };

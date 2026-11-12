@@ -62,6 +62,8 @@ Admin endpoints: `POST /admin/link` (one-time `#link=` magic link for an email),
 
 Set the worker secret `AI_API_KEY` outside the repo (`wrangler secret put AI_API_KEY`, or the dashboard as type *Secret*). The app is then configured automatically to grade through `/v1/ai/chat/completions`; the worker adds the key, forces `AI_MODEL` (default `deepseek-flash`) and `AI_EFFORT` (default `high`), and caps each person at `AI_DAILY_LIMIT` answers per day (default 300). The key never reaches the browser or CI.
 
+The proxy also adds a house style to every AI answer (grading feedback, the follow-up chat, Minimi): answer first and short, the card's terms and jargon kept literally instead of translated, no em or en dashes (also stripped from the answer), no praise, filler or invented facts. It is appended to the app's own prompt, so it works for every person and app version without touching their settings. `AI_STYLE=off` turns it off; `AI_STYLE_EXTRA` adds lines of your own.
+
 ## Security notes
 
 - Device and invite tokens are stored only as SHA-256 hashes.

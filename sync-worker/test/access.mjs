@@ -70,6 +70,12 @@ assert.equal((await call("GET", "/v1/auth/access", { jwt: bob.jwt })).status, 40
   assert.equal(r.data.seen.model, "deepseek-flash", "model forced");
   assert.equal(r.data.seen.reasoning_effort, "high", "effort forced");
   assert.equal(r.data.seen.auth, "Bearer test-ai-key", "key added server-side");
+  // House style: appended to the app's system prompt (or added as one), and dashes removed from the answer.
+  assert.match(r.data.seen.system, /House style/, "house style added when there is no system prompt");
+  assert.equal(r.data.seen.n, 2, "one system message added");
+  assert.equal(r.data.choices[0].message.content, "ok, fine, 3-5", "dashes removed from the answer");
+  const sp = await call("POST", "/v1/ai/chat/completions", { jwt: alice2, body: { messages: [{ role: "system", content: "You are Minimi." }, { role: "user", content: "hi" }] } });
+  assert.match(sp.data.seen.system, /^You are Minimi\.\n\nHouse style/, "house style appended after the app's own prompt");
   // Grading/feedback request as Etude sends it (OpenRouter-style usage field, no stream).
   const g = await call("POST", "/v1/ai/chat/completions", { jwt: alice2, body: { messages: [{ role: "user", content: "hi" }], usage: { include: true } } });
   assert.equal(g.status, 200, "non-stream request with usage field");
@@ -79,6 +85,8 @@ assert.equal((await call("GET", "/v1/auth/access", { jwt: bob.jwt })).status, 40
   assert.match(s.headers.get("content-type") || "", /event-stream/, "streamed back as SSE");
   const st = await s.text();
   assert.match(st, /"deepseek-flash"/, "model forced when streaming");
+  assert.match(st, /House style/, "house style added when streaming");
+  assert.doesNotMatch(st, /\\u2014|\u2014/, "no em dash left in the stream");
   assert.match(st, /\[DONE\]/, "stream complete");
   // A stray stream_options without stream is dropped instead of failing upstream.
   const so = await call("POST", "/v1/ai/chat/completions", { jwt: alice2, body: { messages: [{ role: "user", content: "hi" }], stream_options: { include_usage: true } } });

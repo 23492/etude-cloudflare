@@ -43,12 +43,12 @@ createServer(async (req, res) => {
     }
     if (j.stream === true) {
       res.writeHead(200, { "content-type": "text/event-stream" });
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "o" } }], seen: { model: j.model } })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "o \u2014 k" } }], seen: { model: j.model, system: j.messages.find((m) => m.role === "system")?.content ?? "" } })}\n\n`);
       res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "k" } }] })}\n\n`);
       return res.end("data: [DONE]\n\n");
     }
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }], seen: { model: j.model, reasoning_effort: j.reasoning_effort, auth: req.headers.authorization } }));
+    return res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok \u2014 fine, 3\u20135" } }], seen: { model: j.model, reasoning_effort: j.reasoning_effort, auth: req.headers.authorization, system: j.messages.find((m) => m.role === "system")?.content ?? "", n: j.messages.length } }));
   }
   res.writeHead(404);
   res.end();

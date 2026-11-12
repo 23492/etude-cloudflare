@@ -157,6 +157,53 @@ async function vaultRow(env, acct) {
 }
 
 // ---------------------------------------------------------------- handler
+// ---- House style for every AI answer through this server (grading feedback, the follow-up chat, Minimi).
+// Added to the app's own system prompt, so it applies whatever the app version or the person's settings.
+// AI_STYLE=off switches it off; AI_STYLE_EXTRA (text) adds a deployment's own lines.
+const HOUSE_STYLE = `House style for everything you write for the learner (it overrides any style instruction above; it does not change the facts, the grading or the output format, so JSON stays JSON):
+- Short and direct. Answer first, in the first sentence. Then at most two sentences of why. Stop when the point is made.
+- Write in the learner's language, the way people speak it. Keep every subject term exactly as the card writes it: terms, feature names and jargon stay in the card's language and spelling. That jargon is what is being learned, so use it literally; never translate it, paraphrase it or swap it for a vaguer word.
+- No em dashes or en dashes. Use a period, comma, colon or parentheses.
+- No openers, closers or praise ("Great question", "Sure!", "Good job", "I hope this helps", "Let me know"), no recap at the end.
+- No filler or hype words (crucial, essential, seamless, powerful, basically, simply, "it is important to", "not only X but also Y", "it's not X, it's Y") and their equivalents in other languages.
+- No bold, no headings and no bullet lists unless the learner asks for a list or you compare three or more options.
+- Never invent facts, limits, mnemonics or "common mistakes". If you are not sure, say so in one sentence.
+- If you speak as Minimi the cat: at most one small cat touch, and only when it is actually funny.`;
+function withHouseStyle(messages, extra = "") {
+  const style = extra ? `${HOUSE_STYLE}\n${extra}` : HOUSE_STYLE;
+  const out = messages.map((x) => ({ ...x }));
+  const i = out.findIndex((x) => x.role === "system");
+  if (i < 0) return [{ role: "system", content: style }, ...out];
+  const c = out[i].content;
+  out[i].content = typeof c === "string" ? `${c}\n\n${style}` : Array.isArray(c) ? [...c, { type: "text", text: style }] : style;
+  return out;
+}
+/** Em dash to a comma, en dash to a hyphen; also their JSON escapes, so it works inside raw provider JSON. */
+function undash(s) {
+  return s
+    .replace(/ ?(?:\u2014|\\u2014) ?/g, ", ")
+    .replace(/ (?:\u2013|\\u2013) /g, ", ")
+    .replace(/\u2013|\\u2013/g, "-");
+}
+/** The same on a server-sent-events stream, line by line (a line never splits a JSON string). */
+function dashFilter() {
+  const dec = new TextDecoder(), enc2 = new TextEncoder();
+  let buf = "";
+  return new TransformStream({
+    transform(chunk, ctl) {
+      buf += dec.decode(chunk, { stream: true });
+      const cut = buf.lastIndexOf("\n");
+      if (cut < 0) return;
+      ctl.enqueue(enc2.encode(undash(buf.slice(0, cut + 1))));
+      buf = buf.slice(cut + 1);
+    },
+    flush(ctl) {
+      buf += dec.decode();
+      if (buf) ctl.enqueue(enc2.encode(undash(buf)));
+    },
+  });
+}
+
 async function handle(req, env) {
   const url = new URL(req.url);
   const p = url.pathname.replace(/\/+$/, "") || "/";
@@ -261,15 +308,19 @@ async function handle(req, env) {
     };
     delete upstream.usage; // OpenRouter-only field
     if (!stream) delete upstream.stream_options;
+    const styled = env.AI_STYLE !== "off";
+    if (styled) upstream.messages = withHouseStyle(upstream.messages, env.AI_STYLE_EXTRA || "");
     const r = await fetch(env.AI_URL || "https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${env.AI_API_KEY}` },
       body: JSON.stringify(upstream),
     });
     if (stream && r.ok && r.body) {
-      return new Response(r.body, { status: 200, headers: { "content-type": r.headers.get("content-type") || "text/event-stream", "cache-control": "no-store" } });
+      const out = styled ? r.body.pipeThrough(dashFilter()) : r.body;
+      return new Response(out, { status: 200, headers: { "content-type": r.headers.get("content-type") || "text/event-stream", "cache-control": "no-store" } });
     }
-    const text = await r.text();
+    let text = await r.text();
+    if (styled && r.ok) text = undash(text);
     // Pass the provider's answer through; never echo request headers or the key.
     return new Response(text, { status: r.status, headers: { "content-type": r.headers.get("content-type") || "application/json", "cache-control": "no-store" } });
   }

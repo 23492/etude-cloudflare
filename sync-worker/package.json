@@ -1,1 +1,1 @@
-{"name":"etude-sync-worker","private":true,"type":"module"}
+{"name":"etude-sync-worker","private":true,"type":"module","devDependencies":{"wrangler":"^4.161.0"}}
