@@ -70,5 +70,18 @@ assert.equal((await call("GET", "/v1/auth/access", { jwt: bob.jwt })).status, 40
   assert.equal(r.data.seen.model, "deepseek-flash", "model forced");
   assert.equal(r.data.seen.reasoning_effort, "high", "effort forced");
   assert.equal(r.data.seen.auth, "Bearer test-ai-key", "key added server-side");
+  // Grading/feedback request as Etude sends it (OpenRouter-style usage field, no stream).
+  const g = await call("POST", "/v1/ai/chat/completions", { jwt: alice2, body: { messages: [{ role: "user", content: "hi" }], usage: { include: true } } });
+  assert.equal(g.status, 200, "non-stream request with usage field");
+  // Follow-up chat: stream + stream_options, passed through as server-sent events.
+  const s = await fetch(S + "/v1/ai/chat/completions", { method: "POST", headers: { "cf-access-jwt-assertion": alice2, "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "user", content: "hi" }], stream: true, stream_options: { include_usage: true } }) });
+  assert.equal(s.status, 200, "streaming request accepted");
+  assert.match(s.headers.get("content-type") || "", /event-stream/, "streamed back as SSE");
+  const st = await s.text();
+  assert.match(st, /"deepseek-flash"/, "model forced when streaming");
+  assert.match(st, /\[DONE\]/, "stream complete");
+  // A stray stream_options without stream is dropped instead of failing upstream.
+  const so = await call("POST", "/v1/ai/chat/completions", { jwt: alice2, body: { messages: [{ role: "user", content: "hi" }], stream_options: { include_usage: true } } });
+  assert.equal(so.status, 200, "stream_options without stream");
 }
 console.log("access: all checks passed");

@@ -249,18 +249,26 @@ async function handle(req, env) {
     if (used.calls > cap) return err(429, "ai_daily_limit", `AI grading limit of ${cap} answers per day reached.`);
     const body = await req.json().catch(() => null);
     if (!body || !Array.isArray(body.messages)) return err(400, "invalid_request");
+    // Streaming (the follow-up chat under feedback) is passed through as server-sent events.
+    // stream_options is only valid together with stream: true.
+    const stream = body.stream === true;
     const upstream = {
       ...body,
       model: env.AI_MODEL || "deepseek-flash",
       reasoning_effort: env.AI_EFFORT || "high",
       thinking: { type: "enabled" },
-      stream: false,
+      stream,
     };
+    delete upstream.usage; // OpenRouter-only field
+    if (!stream) delete upstream.stream_options;
     const r = await fetch(env.AI_URL || "https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${env.AI_API_KEY}` },
       body: JSON.stringify(upstream),
     });
+    if (stream && r.ok && r.body) {
+      return new Response(r.body, { status: 200, headers: { "content-type": r.headers.get("content-type") || "text/event-stream", "cache-control": "no-store" } });
+    }
     const text = await r.text();
     // Pass the provider's answer through; never echo request headers or the key.
     return new Response(text, { status: r.status, headers: { "content-type": r.headers.get("content-type") || "application/json", "cache-control": "no-store" } });

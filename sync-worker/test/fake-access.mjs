@@ -36,6 +36,17 @@ createServer(async (req, res) => {
     let b = "";
     for await (const c of req) b += c;
     const j = JSON.parse(b);
+    // Like DeepSeek: stream_options without stream: true is rejected.
+    if (j.stream_options && j.stream !== true) {
+      res.writeHead(400, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ error: { message: "stream_options should be set along with stream = true" } }));
+    }
+    if (j.stream === true) {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "o" } }], seen: { model: j.model } })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "k" } }] })}\n\n`);
+      return res.end("data: [DONE]\n\n");
+    }
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }], seen: { model: j.model, reasoning_effort: j.reasoning_effort, auth: req.headers.authorization } }));
   }
