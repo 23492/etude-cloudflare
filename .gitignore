@@ -5,3 +5,5 @@ sync-worker/.wrangler/
 .dev.vars
 .env*
 *.local.md
+sync-worker/src/planner.js
+sync-worker/test/planner/

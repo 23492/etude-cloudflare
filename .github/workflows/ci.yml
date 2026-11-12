@@ -65,6 +65,10 @@ jobs:
         run: |
           git clone https://github.com/Zibhelina/etude.git etude
           git -C etude checkout "$ETUDE_REF"
+      - name: Fetch the certification planner (dsh-etude at planner.ref)
+        run: bash scripts/fetch-planner.sh
+      - name: Planner test (multi-account, settings from the collection)
+        run: node sync-worker/test/planner/planner.test.mjs
       - name: Worker deps
         working-directory: sync-worker
         run: npm install --no-audit --no-fund -D wrangler@4
@@ -166,6 +170,13 @@ jobs:
       D1_DATABASE_NAME: ${{ vars.D1_DATABASE_NAME }}
       ACCESS_TEAM_DOMAIN: ${{ vars.ACCESS_TEAM_DOMAIN }}
       ACCESS_AUD: ${{ vars.ACCESS_AUD }}
+      AI_MODEL: ${{ vars.AI_MODEL }}
+      AI_EFFORT: ${{ vars.AI_EFFORT }}
+      AI_DAILY_LIMIT: ${{ vars.AI_DAILY_LIMIT }}
+      AI_STYLE: ${{ vars.AI_STYLE }}
+      AI_STYLE_EXTRA: ${{ vars.AI_STYLE_EXTRA }}
+      PLANNER: ${{ vars.PLANNER }}
+      PLANNER_TZ: ${{ vars.PLANNER_TZ }}
     steps:
       - uses: actions/checkout@v4
       - name: Skip when not configured
@@ -184,6 +195,7 @@ jobs:
         if: steps.cfg.outputs.go == 'true'
         working-directory: sync-worker
         run: |
+          bash ../scripts/fetch-planner.sh
           npm install --no-audit --no-fund -D wrangler@4
           node ../scripts/render-wrangler.mjs > wrangler.deploy.jsonc
           npx wrangler d1 execute DB --remote --config wrangler.deploy.jsonc --file schema.sql

@@ -9,6 +9,8 @@
 //
 // Blob storage: R2 when the BLOBS binding exists, otherwise chunked rows in D1 (blob_chunks).
 
+import { runPlanner, seedAccount, plannerStatus } from "./planner.js"; // from dsh-etude cert/kit/planner, see planner.ref
+
 const QUOTA_BYTES = 2 * 1024 ** 3;
 const CHUNK = 1024 * 1024; // D1 fallback chunk size (D1 max row/value is 2 MB)
 const PAGE_MAX = 1000;
@@ -263,6 +265,18 @@ async function handle(req, env) {
       ]);
       else await env.DB.prepare("DELETE FROM blocked WHERE email=?").bind(e).run();
       return json(200, { ok: true, email: e, blocked: !!blocked });
+    }
+    // Certification planner (release practice questions, follow up misses): status, one run now, seed an account.
+    if (p === "/admin/planner" && m === "GET") return json(200, { off: env.PLANNER === "off", accounts: await plannerStatus(env) });
+    if (p === "/admin/planner/run" && m === "POST") {
+      const b = await req.json().catch(() => ({}));
+      return json(200, await runPlanner(env, { account: b.email ? String(b.email).toLowerCase() : null }));
+    }
+    if (p === "/admin/planner/seed" && m === "POST") {
+      const b = await req.json();
+      const a = await env.DB.prepare("SELECT id FROM accounts WHERE email=?").bind(String(b.email || "").toLowerCase()).first();
+      if (!a) return err(404, "no_account");
+      return json(200, await seedAccount(env, a.id, b));
     }
     if (p === "/admin/stats" && m === "GET") {
       const r = await env.DB.prepare(
@@ -569,7 +583,9 @@ export default {
     for (const [k, v] of Object.entries(h)) out.headers.set(k, v);
     return out;
   },
-  async scheduled(_event, env, ctx) {
-    ctx.waitUntil(backup(env));
+  async scheduled(event, env, ctx) {
+    // Weekly D1 export (Monday 03:17 UTC); the planner on every other tick (every 10 minutes).
+    if (event.cron === "17 3 * * 1") return ctx.waitUntil(backup(env));
+    if (env.PLANNER !== "off") ctx.waitUntil(runPlanner(env).catch((e) => console.error("planner", e?.message || e)));
   },
 };

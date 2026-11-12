@@ -19,6 +19,7 @@ This project is not affiliated with Etude. The protocol is reconstructed from Et
 | `sync-worker/test/smoke.mjs` | Protocol smoke test against a running worker |
 | `sync-worker/test/outbox-proxy.mjs` | Test-only proxy that lets Etude's own sync test sign in |
 | `scripts/patch-etude.sh` | Points an Etude checkout at your Sync URL instead of sync.etude.study |
+| `planner.ref`, `scripts/fetch-planner.sh` | The certification planner from dsh-etude, pinned |
 | `.github/workflows/ci.yml` | Builds the app, runs the smoke test and Etude's sync property test |
 
 ## Staying up to date with Etude
@@ -63,6 +64,12 @@ Admin endpoints: `POST /admin/link` (one-time `#link=` magic link for an email),
 Set the worker secret `AI_API_KEY` outside the repo (`wrangler secret put AI_API_KEY`, or the dashboard as type *Secret*). The app is then configured automatically to grade through `/v1/ai/chat/completions`; the worker adds the key, forces `AI_MODEL` (default `deepseek-flash`) and `AI_EFFORT` (default `high`), and caps each person at `AI_DAILY_LIMIT` answers per day (default 300). The key never reaches the browser or CI.
 
 The proxy also adds a house style to every AI answer (grading feedback, the follow-up chat, Minimi): answer first and short, the card's terms and jargon kept literally instead of translated, no em or en dashes (also stripped from the answer), no praise, filler or invented facts. It is appended to the app's own prompt, so it works for every person and app version without touching their settings. `AI_STYLE=off` turns it off; `AI_STYLE_EXTRA` adds lines of your own.
+
+## Certification planner
+
+Decks built with the `etude-cert` skill ([dsh-etude](https://github.com/23492/dsh-etude), `cert/`) hold exam-style practice questions that should arrive a few days after the concept cards behind them are learned, and bring those concept cards back after a miss. Etude cannot do that by itself, so this worker does it in its cron, every 10 minutes, for every account and every such deck on the server. It decrypts the account's events with the vault key the server keeps (Sync without a password), and writes only due-date changes as ordinary sync events; it never rates a card. Settings come from each collection (the deck's learning steps, `releaseDays`, `dayStartHour`), so nothing is configured per deck or per person. Decks without practice questions are not touched.
+
+The code lives in dsh-etude (`cert/kit/planner/src/planner.js`); `planner.ref` pins the commit and `scripts/fetch-planner.sh` copies it in at every CI run and deploy, after its tests pass. Operator routes (admin token): `GET /admin/planner` (status per account), `POST /admin/planner/run`, `POST /admin/planner/seed` (see dsh-etude `cert/references/planner.md`). Repository variables: `PLANNER=off` disables it, `PLANNER_TZ` sets the time zone (default `Europe/Amsterdam`).
 
 ## Security notes
 
