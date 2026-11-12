@@ -71,6 +71,10 @@ Decks built with the `etude-cert` skill ([dsh-etude](https://github.com/23492/ds
 
 The code lives in dsh-etude (`cert/kit/planner/src/planner.js`); `planner.ref` pins the commit and `scripts/fetch-planner.sh` copies it in at every CI run and deploy, after its tests pass. Operator routes (admin token): `GET /admin/planner` (status per account), `POST /admin/planner/run`, `POST /admin/planner/seed` (see dsh-etude `cert/references/planner.md`). Repository variables: `PLANNER=off` disables it, `PLANNER_TZ` sets the time zone (default `Europe/Amsterdam`).
 
+## The etude-cert skill for Claude
+
+Every deploy also serves the `etude-cert` skill (dsh-etude `cert/`, same pinned commit as the planner) at `/skills/etude-cert.zip`. Upload it in Claude Desktop or claude.ai under Settings → Capabilities → Skills (code execution on), or unzip it into `~/.claude/skills/` for Claude Code. Claude then builds a certification deck as a pack file; the learner imports it in the app (Settings → Data → Import packs) and the planner on this server takes it from there.
+
 ## Security notes
 
 - Device and invite tokens are stored only as SHA-256 hashes.
